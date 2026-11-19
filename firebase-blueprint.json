@@ -1,0 +1,413 @@
+{
+  "entities": {
+    "UserPublic": {
+      "title": "UserPublic",
+      "description": "Public musician/listener profile without PII.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "username": { "type": "string", "minLength": 2, "maxLength": 32, "pattern": "^[a-zA-Z0-9_\\.]+$" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "avatarUrl": { "type": "string", "maxLength": 500 },
+        "bio": { "type": "string", "maxLength": 280 },
+        "country": { "type": "string", "maxLength": 64 },
+        "favoriteGenres": { "type": "array" },
+        "themeColor": { "type": "string", "maxLength": 32 },
+        "isOnline": { "type": "boolean" },
+        "currentRoomId": { "type": "string", "maxLength": 128 },
+        "currentRoomName": { "type": "string", "maxLength": 80 },
+        "currentTrackTitle": { "type": "string", "maxLength": 120 },
+        "points": { "type": "number" },
+        "weeklyPoints": { "type": "number" },
+        "monthlyPoints": { "type": "number" },
+        "tracksSharedCount": { "type": "number" },
+        "listeningMinutes": { "type": "number" },
+        "badges": { "type": "array" },
+        "followersCount": { "type": "number" },
+        "followingCount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "username", "displayName", "points", "createdAt", "updatedAt"]
+    },
+    "UserPrivate": {
+      "title": "UserPrivate",
+      "description": "Private user settings, PII, favorite rooms, and blocked UIDs.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "email": { "type": "string", "format": "email", "maxLength": 200 },
+        "languagePref": { "type": "string", "enum": ["pt", "en"] },
+        "privacyShowRoom": { "type": "boolean" },
+        "privacyAllowDm": { "type": "boolean" },
+        "notifyFriendRooms": { "type": "boolean" },
+        "notifyEvents": { "type": "boolean" },
+        "defaultVolume": { "type": "number" },
+        "autoPartyMode": { "type": "boolean" },
+        "favoriteRoomIds": { "type": "array" },
+        "blockedUids": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "languagePref", "createdAt", "updatedAt"]
+    },
+    "Room": {
+      "title": "Room",
+      "description": "A synchronized music listening room.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "name": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "description": { "type": "string", "maxLength": 400 },
+        "coverUrl": { "type": "string", "maxLength": 500 },
+        "category": { "type": "string", "maxLength": 40 },
+        "visibility": { "type": "string", "enum": ["public", "private", "exclusive"] },
+        "creatorId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "creatorName": { "type": "string", "maxLength": 64 },
+        "inviteCode": { "type": "string", "maxLength": 32 },
+        "hasPassword": { "type": "boolean" },
+        "passwordHash": { "type": "string", "maxLength": 128 },
+        "maxParticipants": { "type": "number" },
+        "partyMode": { "type": "boolean" },
+        "participantCount": { "type": "number" },
+        "currentTrackTitle": { "type": "string", "maxLength": 140 },
+        "currentTrackArtist": { "type": "string", "maxLength": 100 },
+        "isPlaying": { "type": "boolean" },
+        "isClosed": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "category", "visibility", "creatorId", "inviteCode", "createdAt", "updatedAt"]
+    },
+    "RoomInvite": {
+      "title": "RoomInvite",
+      "description": "Lookup index for joining private/exclusive rooms via invite code.",
+      "type": "object",
+      "properties": {
+        "inviteCode": { "type": "string", "minLength": 4, "maxLength": 32 },
+        "roomId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "creatorId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "hasPassword": { "type": "boolean" },
+        "passwordHash": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["inviteCode", "roomId", "creatorId", "hasPassword", "createdAt"]
+    },
+    "RoomMember": {
+      "title": "RoomMember",
+      "description": "Participant membership and role inside a room.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "username": { "type": "string", "maxLength": 32 },
+        "displayName": { "type": "string", "maxLength": 64 },
+        "avatarUrl": { "type": "string", "maxLength": 500 },
+        "role": { "type": "string", "enum": ["admin", "dj", "listener"] },
+        "isMuted": { "type": "boolean" },
+        "inviteCode": { "type": "string", "maxLength": 32 },
+        "joinedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "role", "isMuted", "joinedAt"]
+    },
+    "RoomTrack": {
+      "title": "RoomTrack",
+      "description": "Track in a room shared playlist or queue.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 140 },
+        "artist": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "coverUrl": { "type": "string", "maxLength": 500 },
+        "sourceType": { "type": "string", "enum": ["upload", "youtube", "synth"] },
+        "sourceRef": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "durationMs": { "type": "number" },
+        "addedByUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "addedByName": { "type": "string", "maxLength": 64 },
+        "status": { "type": "string", "enum": ["queued", "playing", "played"] },
+        "orderIndex": { "type": "number" },
+        "votesCount": { "type": "number" },
+        "voterUids": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "artist", "sourceType", "sourceRef", "durationMs", "addedByUid", "status", "createdAt"]
+    },
+    "TrackRequest": {
+      "title": "TrackRequest",
+      "description": "Listener music request awaiting DJ/Admin approval.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 140 },
+        "artist": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "coverUrl": { "type": "string", "maxLength": 500 },
+        "sourceType": { "type": "string", "enum": ["upload", "youtube", "synth"] },
+        "sourceRef": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "durationMs": { "type": "number" },
+        "requestedByUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "requestedByName": { "type": "string", "maxLength": 64 },
+        "status": { "type": "string", "enum": ["pending", "accepted", "rejected"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "artist", "sourceType", "sourceRef", "durationMs", "requestedByUid", "status", "createdAt"]
+    },
+    "RoomMessage": {
+      "title": "RoomMessage",
+      "description": "Chat message inside a room.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "senderUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "senderName": { "type": "string", "maxLength": 64 },
+        "senderUsername": { "type": "string", "maxLength": 32 },
+        "senderAvatar": { "type": "string", "maxLength": 500 },
+        "senderRole": { "type": "string", "enum": ["admin", "dj", "listener"] },
+        "text": { "type": "string", "maxLength": 1000 },
+        "imageUrl": { "type": "string", "maxLength": 500 },
+        "replyToId": { "type": "string", "maxLength": 128 },
+        "replyPreview": { "type": "string", "maxLength": 140 },
+        "mentions": { "type": "array" },
+        "reactions": { "type": "object" },
+        "isPinned": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "senderUid", "senderName", "text", "isPinned", "createdAt"]
+    },
+    "RoomHistory": {
+      "title": "RoomHistory",
+      "description": "Historical playback log of a room.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 140 },
+        "artist": { "type": "string", "maxLength": 100 },
+        "coverUrl": { "type": "string", "maxLength": 500 },
+        "sourceType": { "type": "string", "enum": ["upload", "youtube", "synth"] },
+        "sourceRef": { "type": "string", "maxLength": 500 },
+        "playedByUid": { "type": "string", "maxLength": 128 },
+        "playedByName": { "type": "string", "maxLength": 64 },
+        "playedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "artist", "sourceType", "sourceRef", "playedByUid", "playedAt"]
+    },
+    "MusicBattle": {
+      "title": "MusicBattle",
+      "description": "Competitive track battle inside a room.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "theme": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "trackATitle": { "type": "string", "maxLength": 140 },
+        "trackAArtist": { "type": "string", "maxLength": 100 },
+        "trackASourceType": { "type": "string", "enum": ["upload", "youtube", "synth"] },
+        "trackASourceRef": { "type": "string", "maxLength": 500 },
+        "trackBTitle": { "type": "string", "maxLength": 140 },
+        "trackBArtist": { "type": "string", "maxLength": 100 },
+        "trackBSourceType": { "type": "string", "enum": ["upload", "youtube", "synth"] },
+        "trackBSourceRef": { "type": "string", "maxLength": 500 },
+        "creatorUid": { "type": "string", "maxLength": 128 },
+        "votesA": { "type": "array" },
+        "votesB": { "type": "array" },
+        "status": { "type": "string", "enum": ["active", "finished"] },
+        "winner": { "type": "string", "enum": ["A", "B", "tie", ""] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "theme", "trackATitle", "trackBTitle", "creatorUid", "status", "createdAt"]
+    },
+    "Friendship": {
+      "title": "Friendship",
+      "description": "Bidirectional friend connection between two users.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "participants": { "type": "array" },
+        "requesterUid": { "type": "string", "maxLength": 128 },
+        "recipientUid": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["pending", "accepted", "declined"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "participants", "requesterUid", "recipientUid", "status", "createdAt", "updatedAt"]
+    },
+    "Follow": {
+      "title": "Follow",
+      "description": "One-way follow relationship.",
+      "type": "object",
+      "properties": {
+        "followerUid": { "type": "string", "maxLength": 128 },
+        "targetUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["followerUid", "targetUid", "createdAt"]
+    },
+    "DmThread": {
+      "title": "DmThread",
+      "description": "Direct message thread or friend group.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "isGroup": { "type": "boolean" },
+        "name": { "type": "string", "maxLength": 80 },
+        "participants": { "type": "array" },
+        "creatorUid": { "type": "string", "maxLength": 128 },
+        "lastMessage": { "type": "string", "maxLength": 200 },
+        "lastMessageAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "isGroup", "participants", "creatorUid", "createdAt"]
+    },
+    "DmMessage": {
+      "title": "DmMessage",
+      "description": "Message inside a DM thread or friend group.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "senderUid": { "type": "string", "maxLength": 128 },
+        "senderName": { "type": "string", "maxLength": 64 },
+        "text": { "type": "string", "maxLength": 1000 },
+        "inviteRoomId": { "type": "string", "maxLength": 128 },
+        "inviteRoomName": { "type": "string", "maxLength": 80 },
+        "inviteCode": { "type": "string", "maxLength": 32 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "senderUid", "senderName", "text", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "User notification for invites, friends, or events.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "recipientUid": { "type": "string", "maxLength": 128 },
+        "senderUid": { "type": "string", "maxLength": 128 },
+        "senderName": { "type": "string", "maxLength": 64 },
+        "type": { "type": "string", "enum": ["friend_request", "room_invite", "friend_room", "event_reminder", "badge"] },
+        "title": { "type": "string", "maxLength": 120 },
+        "body": { "type": "string", "maxLength": 280 },
+        "roomId": { "type": "string", "maxLength": 128 },
+        "inviteCode": { "type": "string", "maxLength": 32 },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "recipientUid", "senderUid", "type", "title", "read", "createdAt"]
+    },
+    "MusicEvent": {
+      "title": "MusicEvent",
+      "description": "Scheduled live music event linked to a room.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "description": { "type": "string", "maxLength": 400 },
+        "roomId": { "type": "string", "maxLength": 128 },
+        "roomName": { "type": "string", "maxLength": 80 },
+        "coverUrl": { "type": "string", "maxLength": 500 },
+        "startsAt": { "type": "string", "format": "date-time" },
+        "maxCapacity": { "type": "number" },
+        "attendeeCount": { "type": "number" },
+        "creatorUid": { "type": "string", "maxLength": 128 },
+        "creatorName": { "type": "string", "maxLength": 64 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "roomId", "startsAt", "maxCapacity", "creatorUid", "createdAt"]
+    },
+    "EventRegistration": {
+      "title": "EventRegistration",
+      "description": "User RSVP registration for a music event.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 64 },
+        "registeredAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "registeredAt"]
+    },
+    "Report": {
+      "title": "Report",
+      "description": "Moderation report filed by a user.",
+      "type": "object",
+      "properties": {
+        "reporterUid": { "type": "string", "maxLength": 128 },
+        "targetType": { "type": "string", "enum": ["user", "room", "message"] },
+        "targetId": { "type": "string", "maxLength": 128 },
+        "reason": { "type": "string", "maxLength": 120 },
+        "details": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["reporterUid", "targetType", "targetId", "reason", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users_public/{userId}": {
+      "schema": { "$ref": "#/entities/UserPublic" },
+      "description": "Public musician profiles without PII."
+    },
+    "/users_private/{userId}": {
+      "schema": { "$ref": "#/entities/UserPrivate" },
+      "description": "Private user settings, email, and blocklist."
+    },
+    "/rooms/{roomId}": {
+      "schema": { "$ref": "#/entities/Room" },
+      "description": "Synchronized music rooms."
+    },
+    "/room_invites/{inviteCode}": {
+      "schema": { "$ref": "#/entities/RoomInvite" },
+      "description": "Direct lookup for private room invite codes."
+    },
+    "/rooms/{roomId}/members/{memberId}": {
+      "schema": { "$ref": "#/entities/RoomMember" },
+      "description": "Members and roles in a room."
+    },
+    "/rooms/{roomId}/tracks/{trackId}": {
+      "schema": { "$ref": "#/entities/RoomTrack" },
+      "description": "Shared playlist and voting queue in a room."
+    },
+    "/rooms/{roomId}/requests/{requestId}": {
+      "schema": { "$ref": "#/entities/TrackRequest" },
+      "description": "Listener track requests awaiting DJ/Admin approval."
+    },
+    "/rooms/{roomId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/RoomMessage" },
+      "description": "Real-time chat messages in a room."
+    },
+    "/rooms/{roomId}/history/{historyId}": {
+      "schema": { "$ref": "#/entities/RoomHistory" },
+      "description": "History of tracks played in a room."
+    },
+    "/rooms/{roomId}/battles/{battleId}": {
+      "schema": { "$ref": "#/entities/MusicBattle" },
+      "description": "Live Music Battle sessions in a room."
+    },
+    "/friendships/{friendshipId}": {
+      "schema": { "$ref": "#/entities/Friendship" },
+      "description": "Friend requests and accepted friendships."
+    },
+    "/follows/{followId}": {
+      "schema": { "$ref": "#/entities/Follow" },
+      "description": "One-way follow records."
+    },
+    "/dm_threads/{threadId}": {
+      "schema": { "$ref": "#/entities/DmThread" },
+      "description": "Direct messages and friend group threads."
+    },
+    "/dm_threads/{threadId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/DmMessage" },
+      "description": "Messages within DM or friend group threads."
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/Notification" },
+      "description": "User notifications."
+    },
+    "/events/{eventId}": {
+      "schema": { "$ref": "#/entities/MusicEvent" },
+      "description": "Scheduled musical events."
+    },
+    "/events/{eventId}/registrations/{uid}": {
+      "schema": { "$ref": "#/entities/EventRegistration" },
+      "description": "Event RSVPs."
+    },
+    "/reports/{reportId}": {
+      "schema": { "$ref": "#/entities/Report" },
+      "description": "User and room moderation reports."
+    }
+  }
+}

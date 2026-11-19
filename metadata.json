@@ -1,0 +1,6 @@
+{
+  "name": "VIBE ROOM",
+  "description": "A música conecta. A vibe aproxima. Plataforma social de música em tempo real com salas sincronizadas, chat e batalhas de DJ.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

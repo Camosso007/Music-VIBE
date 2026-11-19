@@ -1,0 +1,750 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: deny everything by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- GLOBAL PRIMITIVES ---
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    function incoming() {
+      return request.resource.data;
+    }
+    function existing() {
+      return resource.data;
+    }
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Room relational helpers
+    function roomExists(roomId) {
+      return exists(/databases/$(database)/documents/rooms/$(roomId));
+    }
+    function getRoom(roomId) {
+      return get(/databases/$(database)/documents/rooms/$(roomId)).data;
+    }
+    function isMember(roomId) {
+      return exists(/databases/$(database)/documents/rooms/$(roomId)/members/$(request.auth.uid));
+    }
+    function getMember(roomId) {
+      return get(/databases/$(database)/documents/rooms/$(roomId)/members/$(request.auth.uid)).data;
+    }
+    function isRoomAdmin(roomId) {
+      return roomExists(roomId) && (
+        getRoom(roomId).creatorId == request.auth.uid ||
+        (isMember(roomId) && getMember(roomId).role == 'admin')
+      );
+    }
+    function isRoomStaff(roomId) {
+      return roomExists(roomId) && (
+        getRoom(roomId).creatorId == request.auth.uid ||
+        (isMember(roomId) && (getMember(roomId).role == 'admin' || getMember(roomId).role == 'dj'))
+      );
+    }
+    function isMemberMuted(roomId) {
+      return isMember(roomId) && getMember(roomId).isMuted == true;
+    }
+    function canReadRoom(roomId) {
+      return roomExists(roomId) && (
+        getRoom(roomId).visibility in ['public', 'exclusive'] ||
+        getRoom(roomId).creatorId == request.auth.uid ||
+        isMember(roomId)
+      );
+    }
+
+    // --- VALIDATION BLUEPRINTS ---
+    function isValidUserPublic(data) {
+      return data.keys().hasAll(['uid', 'username', 'displayName', 'points', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'uid', 'username', 'displayName', 'avatarUrl', 'bio', 'country',
+          'favoriteGenres', 'themeColor', 'isOnline', 'currentRoomId',
+          'currentRoomName', 'currentTrackTitle', 'points', 'weeklyPoints',
+          'monthlyPoints', 'tracksSharedCount', 'listeningMinutes', 'badges',
+          'followersCount', 'followingCount', 'createdAt', 'updatedAt'
+        ])
+        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128
+        && data.username is string && data.username.size() >= 2 && data.username.size() <= 32
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 64
+        && (!('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() <= 500))
+        && (!('bio' in data) || (data.bio is string && data.bio.size() <= 280))
+        && (!('country' in data) || (data.country is string && data.country.size() <= 64))
+        && (!('favoriteGenres' in data) || (data.favoriteGenres is list && data.favoriteGenres.size() <= 10))
+        && (!('themeColor' in data) || (data.themeColor is string && data.themeColor.size() <= 32))
+        && (!('isOnline' in data) || data.isOnline is bool)
+        && (!('currentRoomId' in data) || (data.currentRoomId is string && data.currentRoomId.size() <= 128))
+        && (!('currentRoomName' in data) || (data.currentRoomName is string && data.currentRoomName.size() <= 80))
+        && (!('currentTrackTitle' in data) || (data.currentTrackTitle is string && data.currentTrackTitle.size() <= 140))
+        && data.points is number && data.points >= 0
+        && (!('weeklyPoints' in data) || (data.weeklyPoints is number && data.weeklyPoints >= 0))
+        && (!('monthlyPoints' in data) || (data.monthlyPoints is number && data.monthlyPoints >= 0))
+        && (!('tracksSharedCount' in data) || (data.tracksSharedCount is number && data.tracksSharedCount >= 0))
+        && (!('listeningMinutes' in data) || (data.listeningMinutes is number && data.listeningMinutes >= 0))
+        && (!('badges' in data) || (data.badges is list && data.badges.size() <= 20))
+        && (!('followersCount' in data) || (data.followersCount is number && data.followersCount >= 0))
+        && (!('followingCount' in data) || (data.followingCount is number && data.followingCount >= 0))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivate(data) {
+      return data.keys().hasAll(['uid', 'email', 'languagePref', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'uid', 'email', 'languagePref', 'privacyShowRoom', 'privacyAllowDm',
+          'notifyFriendRooms', 'notifyEvents', 'defaultVolume', 'autoPartyMode',
+          'favoriteRoomIds', 'blockedUids', 'createdAt', 'updatedAt'
+        ])
+        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128
+        && data.email is string && data.email.size() <= 200
+        && data.languagePref in ['pt', 'en']
+        && (!('privacyShowRoom' in data) || data.privacyShowRoom is bool)
+        && (!('privacyAllowDm' in data) || data.privacyAllowDm is bool)
+        && (!('notifyFriendRooms' in data) || data.notifyFriendRooms is bool)
+        && (!('notifyEvents' in data) || data.notifyEvents is bool)
+        && (!('defaultVolume' in data) || (data.defaultVolume is number && data.defaultVolume >= 0 && data.defaultVolume <= 1))
+        && (!('autoPartyMode' in data) || data.autoPartyMode is bool)
+        && (!('favoriteRoomIds' in data) || (data.favoriteRoomIds is list && data.favoriteRoomIds.size() <= 100))
+        && (!('blockedUids' in data) || (data.blockedUids is list && data.blockedUids.size() <= 100))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidRoom(data) {
+      return data.keys().hasAll(['id', 'name', 'category', 'visibility', 'creatorId', 'inviteCode', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'id', 'name', 'description', 'coverUrl', 'category', 'visibility',
+          'creatorId', 'creatorName', 'inviteCode', 'hasPassword', 'passwordHash',
+          'maxParticipants', 'partyMode', 'participantCount', 'currentTrackTitle',
+          'currentTrackArtist', 'isPlaying', 'isClosed', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id.size() >= 1 && data.id.size() <= 128
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 80
+        && (!('description' in data) || (data.description is string && data.description.size() <= 400))
+        && (!('coverUrl' in data) || (data.coverUrl is string && data.coverUrl.size() <= 500))
+        && data.category is string && data.category.size() >= 1 && data.category.size() <= 40
+        && data.visibility in ['public', 'private', 'exclusive']
+        && data.creatorId is string && data.creatorId.size() >= 1 && data.creatorId.size() <= 128
+        && (!('creatorName' in data) || (data.creatorName is string && data.creatorName.size() <= 64))
+        && data.inviteCode is string && data.inviteCode.size() >= 4 && data.inviteCode.size() <= 32
+        && (!('hasPassword' in data) || data.hasPassword is bool)
+        && (!('passwordHash' in data) || (data.passwordHash is string && data.passwordHash.size() <= 128))
+        && (!('maxParticipants' in data) || (data.maxParticipants is number && data.maxParticipants >= 2 && data.maxParticipants <= 500))
+        && (!('partyMode' in data) || data.partyMode is bool)
+        && (!('participantCount' in data) || (data.participantCount is number && data.participantCount >= 0))
+        && (!('currentTrackTitle' in data) || (data.currentTrackTitle is string && data.currentTrackTitle.size() <= 140))
+        && (!('currentTrackArtist' in data) || (data.currentTrackArtist is string && data.currentTrackArtist.size() <= 100))
+        && (!('isPlaying' in data) || data.isPlaying is bool)
+        && (!('isClosed' in data) || data.isClosed is bool)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidRoomInvite(data) {
+      return data.keys().hasAll(['inviteCode', 'roomId', 'creatorId', 'hasPassword', 'createdAt'])
+        && data.keys().hasOnly(['inviteCode', 'roomId', 'creatorId', 'hasPassword', 'passwordHash', 'createdAt'])
+        && data.inviteCode is string && data.inviteCode.size() >= 4 && data.inviteCode.size() <= 32
+        && data.roomId is string && data.roomId.size() >= 1 && data.roomId.size() <= 128
+        && data.creatorId is string && data.creatorId.size() >= 1 && data.creatorId.size() <= 128
+        && data.hasPassword is bool
+        && (!('passwordHash' in data) || (data.passwordHash is string && data.passwordHash.size() <= 128))
+        && data.createdAt is timestamp;
+    }
+
+    function isValidRoomMember(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'role', 'isMuted', 'joinedAt'])
+        && data.keys().hasOnly(['uid', 'username', 'displayName', 'avatarUrl', 'role', 'isMuted', 'inviteCode', 'joinedAt'])
+        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128
+        && (!('username' in data) || (data.username is string && data.username.size() <= 32))
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 64
+        && (!('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() <= 500))
+        && data.role in ['admin', 'dj', 'listener']
+        && data.isMuted is bool
+        && (!('inviteCode' in data) || (data.inviteCode is string && data.inviteCode.size() <= 32))
+        && data.joinedAt is timestamp;
+    }
+
+    function isValidRoomTrack(data) {
+      return data.keys().hasAll(['id', 'title', 'artist', 'sourceType', 'sourceRef', 'durationMs', 'addedByUid', 'status', 'createdAt'])
+        && data.keys().hasOnly([
+          'id', 'title', 'artist', 'coverUrl', 'sourceType', 'sourceRef',
+          'durationMs', 'addedByUid', 'addedByName', 'status', 'orderIndex',
+          'votesCount', 'voterUids', 'createdAt'
+        ])
+        && data.id is string && data.id.size() >= 1 && data.id.size() <= 128
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 140
+        && data.artist is string && data.artist.size() >= 1 && data.artist.size() <= 100
+        && (!('coverUrl' in data) || (data.coverUrl is string && data.coverUrl.size() <= 500))
+        && data.sourceType in ['upload', 'youtube', 'synth']
+        && data.sourceRef is string && data.sourceRef.size() >= 1 && data.sourceRef.size() <= 500
+        && data.durationMs is number && data.durationMs >= 1000 && data.durationMs <= 7200000
+        && data.addedByUid is string && data.addedByUid.size() >= 1 && data.addedByUid.size() <= 128
+        && (!('addedByName' in data) || (data.addedByName is string && data.addedByName.size() <= 64))
+        && data.status in ['queued', 'playing', 'played']
+        && (!('orderIndex' in data) || data.orderIndex is number)
+        && (!('votesCount' in data) || (data.votesCount is number && data.votesCount >= 0))
+        && (!('voterUids' in data) || (data.voterUids is list && data.voterUids.size() <= 200))
+        && data.createdAt is timestamp;
+    }
+
+    function isValidTrackRequest(data) {
+      return data.keys().hasAll(['id', 'title', 'artist', 'sourceType', 'sourceRef', 'durationMs', 'requestedByUid', 'status', 'createdAt'])
+        && data.keys().hasOnly([
+          'id', 'title', 'artist', 'coverUrl', 'sourceType', 'sourceRef',
+          'durationMs', 'requestedByUid', 'requestedByName', 'status', 'createdAt'
+        ])
+        && data.id is string && data.id.size() >= 1 && data.id.size() <= 128
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 140
+        && data.artist is string && data.artist.size() >= 1 && data.artist.size() <= 100
+        && (!('coverUrl' in data) || (data.coverUrl is string && data.coverUrl.size() <= 500))
+        && data.sourceType in ['upload', 'youtube', 'synth']
+        && data.sourceRef is string && data.sourceRef.size() >= 1 && data.sourceRef.size() <= 500
+        && data.durationMs is number && data.durationMs >= 1000 && data.durationMs <= 7200000
+        && data.requestedByUid is string && data.requestedByUid.size() >= 1 && data.requestedByUid.size() <= 128
+        && (!('requestedByName' in data) || (data.requestedByName is string && data.requestedByName.size() <= 64))
+        && data.status in ['pending', 'accepted', 'rejected']
+        && data.createdAt is timestamp;
+    }
+
+    function isValidRoomMessage(data) {
+      return data.keys().hasAll(['id', 'senderUid', 'senderName', 'text', 'isPinned', 'createdAt'])
+        && data.keys().hasOnly([
+          'id', 'senderUid', 'senderName', 'senderUsername', 'senderAvatar',
+          'senderRole', 'text', 'imageUrl', 'replyToId', 'replyPreview',
+          'mentions', 'reactions', 'isPinned', 'createdAt'
+        ])
+        && data.id is string && data.id.size() >= 1 && data.id.size() <= 128
+        && data.senderUid is string && data.senderUid.size() >= 1 && data.senderUid.size() <= 128
+        && data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 64
+        && (!('senderUsername' in data) || (data.senderUsername is string && data.senderUsername.size() <= 32))
+        && (!('senderAvatar' in data) || (data.senderAvatar is string && data.senderAvatar.size() <= 500))
+        && (!('senderRole' in data) || data.senderRole in ['admin', 'dj', 'listener'])
+        && data.text is string && data.text.size() <= 1000
+        && (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 500))
+        && (!('replyToId' in data) || (data.replyToId is string && data.replyToId.size() <= 128))
+        && (!('replyPreview' in data) || (data.replyPreview is string && data.replyPreview.size() <= 140))
+        && (!('mentions' in data) || (data.mentions is list && data.mentions.size() <= 10))
+        && (!('reactions' in data) || (data.reactions is map && data.reactions.size() <= 20))
+        && data.isPinned is bool
+        && data.createdAt is timestamp;
+    }
+
+    function isValidRoomHistory(data) {
+      return data.keys().hasAll(['id', 'title', 'artist', 'sourceType', 'sourceRef', 'playedByUid', 'playedAt'])
+        && data.keys().hasOnly(['id', 'title', 'artist', 'coverUrl', 'sourceType', 'sourceRef', 'playedByUid', 'playedByName', 'playedAt'])
+        && data.id is string && data.id.size() <= 128
+        && data.title is string && data.title.size() <= 140
+        && data.artist is string && data.artist.size() <= 100
+        && (!('coverUrl' in data) || (data.coverUrl is string && data.coverUrl.size() <= 500))
+        && data.sourceType in ['upload', 'youtube', 'synth']
+        && data.sourceRef is string && data.sourceRef.size() <= 500
+        && data.playedByUid is string && data.playedByUid.size() <= 128
+        && (!('playedByName' in data) || (data.playedByName is string && data.playedByName.size() <= 64))
+        && data.playedAt is timestamp;
+    }
+
+    function isValidMusicBattle(data) {
+      return data.keys().hasAll(['id', 'theme', 'trackATitle', 'trackBTitle', 'creatorUid', 'status', 'createdAt'])
+        && data.keys().hasOnly([
+          'id', 'theme', 'trackATitle', 'trackAArtist', 'trackASourceType', 'trackASourceRef',
+          'trackBTitle', 'trackBArtist', 'trackBSourceType', 'trackBSourceRef',
+          'creatorUid', 'votesA', 'votesB', 'status', 'winner', 'createdAt'
+        ])
+        && data.id is string && data.id.size() <= 128
+        && data.theme is string && data.theme.size() >= 2 && data.theme.size() <= 100
+        && data.trackATitle is string && data.trackATitle.size() <= 140
+        && (!('trackAArtist' in data) || (data.trackAArtist is string && data.trackAArtist.size() <= 100))
+        && (!('trackASourceType' in data) || data.trackASourceType in ['upload', 'youtube', 'synth'])
+        && (!('trackASourceRef' in data) || (data.trackASourceRef is string && data.trackASourceRef.size() <= 500))
+        && data.trackBTitle is string && data.trackBTitle.size() <= 140
+        && (!('trackBArtist' in data) || (data.trackBArtist is string && data.trackBArtist.size() <= 100))
+        && (!('trackBSourceType' in data) || data.trackBSourceType in ['upload', 'youtube', 'synth'])
+        && (!('trackBSourceRef' in data) || (data.trackBSourceRef is string && data.trackBSourceRef.size() <= 500))
+        && data.creatorUid is string && data.creatorUid.size() <= 128
+        && (!('votesA' in data) || (data.votesA is list && data.votesA.size() <= 200))
+        && (!('votesB' in data) || (data.votesB is list && data.votesB.size() <= 200))
+        && data.status in ['active', 'finished']
+        && (!('winner' in data) || data.winner in ['A', 'B', 'tie', ''])
+        && data.createdAt is timestamp;
+    }
+
+    function isValidFriendship(data) {
+      return data.keys().hasAll(['id', 'participants', 'requesterUid', 'recipientUid', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'participants', 'requesterUid', 'recipientUid', 'status', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id.size() <= 128
+        && data.participants is list && data.participants.size() == 2
+        && data.requesterUid is string && data.requesterUid.size() <= 128
+        && data.recipientUid is string && data.recipientUid.size() <= 128
+        && data.status in ['pending', 'accepted', 'declined']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidFollow(data) {
+      return data.keys().hasAll(['followerUid', 'targetUid', 'createdAt'])
+        && data.keys().hasOnly(['followerUid', 'targetUid', 'createdAt'])
+        && data.followerUid is string && data.followerUid.size() <= 128
+        && data.targetUid is string && data.targetUid.size() <= 128
+        && data.createdAt is timestamp;
+    }
+
+    function isValidDmThread(data) {
+      return data.keys().hasAll(['id', 'isGroup', 'participants', 'creatorUid', 'createdAt'])
+        && data.keys().hasOnly(['id', 'isGroup', 'name', 'participants', 'creatorUid', 'lastMessage', 'lastMessageAt', 'createdAt'])
+        && data.id is string && data.id.size() <= 128
+        && data.isGroup is bool
+        && (!('name' in data) || (data.name is string && data.name.size() <= 80))
+        && data.participants is list && data.participants.size() >= 2 && data.participants.size() <= 25
+        && data.creatorUid is string && data.creatorUid.size() <= 128
+        && (!('lastMessage' in data) || (data.lastMessage is string && data.lastMessage.size() <= 200))
+        && (!('lastMessageAt' in data) || data.lastMessageAt is timestamp)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidDmMessage(data) {
+      return data.keys().hasAll(['id', 'senderUid', 'senderName', 'text', 'createdAt'])
+        && data.keys().hasOnly(['id', 'senderUid', 'senderName', 'text', 'inviteRoomId', 'inviteRoomName', 'inviteCode', 'createdAt'])
+        && data.id is string && data.id.size() <= 128
+        && data.senderUid is string && data.senderUid.size() <= 128
+        && data.senderName is string && data.senderName.size() <= 64
+        && data.text is string && data.text.size() <= 1000
+        && (!('inviteRoomId' in data) || (data.inviteRoomId is string && data.inviteRoomId.size() <= 128))
+        && (!('inviteRoomName' in data) || (data.inviteRoomName is string && data.inviteRoomName.size() <= 80))
+        && (!('inviteCode' in data) || (data.inviteCode is string && data.inviteCode.size() <= 32))
+        && data.createdAt is timestamp;
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll(['id', 'recipientUid', 'senderUid', 'type', 'title', 'read', 'createdAt'])
+        && data.keys().hasOnly(['id', 'recipientUid', 'senderUid', 'senderName', 'type', 'title', 'body', 'roomId', 'inviteCode', 'read', 'createdAt'])
+        && data.id is string && data.id.size() <= 128
+        && data.recipientUid is string && data.recipientUid.size() <= 128
+        && data.senderUid is string && data.senderUid.size() <= 128
+        && (!('senderName' in data) || (data.senderName is string && data.senderName.size() <= 64))
+        && data.type in ['friend_request', 'room_invite', 'friend_room', 'event_reminder', 'badge']
+        && data.title is string && data.title.size() <= 120
+        && (!('body' in data) || (data.body is string && data.body.size() <= 280))
+        && (!('roomId' in data) || (data.roomId is string && data.roomId.size() <= 128))
+        && (!('inviteCode' in data) || (data.inviteCode is string && data.inviteCode.size() <= 32))
+        && data.read is bool
+        && data.createdAt is timestamp;
+    }
+
+    function isValidEvent(data) {
+      return data.keys().hasAll(['id', 'title', 'roomId', 'startsAt', 'maxCapacity', 'creatorUid', 'createdAt'])
+        && data.keys().hasOnly(['id', 'title', 'description', 'roomId', 'roomName', 'coverUrl', 'startsAt', 'maxCapacity', 'attendeeCount', 'creatorUid', 'creatorName', 'createdAt'])
+        && data.id is string && data.id.size() <= 128
+        && data.title is string && data.title.size() >= 2 && data.title.size() <= 100
+        && (!('description' in data) || (data.description is string && data.description.size() <= 400))
+        && data.roomId is string && data.roomId.size() <= 128
+        && (!('roomName' in data) || (data.roomName is string && data.roomName.size() <= 80))
+        && (!('coverUrl' in data) || (data.coverUrl is string && data.coverUrl.size() <= 500))
+        && data.startsAt is string && data.startsAt.size() <= 64
+        && data.maxCapacity is number && data.maxCapacity >= 2 && data.maxCapacity <= 1000
+        && (!('attendeeCount' in data) || (data.attendeeCount is number && data.attendeeCount >= 0))
+        && data.creatorUid is string && data.creatorUid.size() <= 128
+        && (!('creatorName' in data) || (data.creatorName is string && data.creatorName.size() <= 64))
+        && data.createdAt is timestamp;
+    }
+
+    function isValidEventRegistration(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'registeredAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'registeredAt'])
+        && data.uid is string && data.uid.size() <= 128
+        && data.displayName is string && data.displayName.size() <= 64
+        && data.registeredAt is timestamp;
+    }
+
+    function isValidReport(data) {
+      return data.keys().hasAll(['reporterUid', 'targetType', 'targetId', 'reason', 'createdAt'])
+        && data.keys().hasOnly(['reporterUid', 'targetType', 'targetId', 'reason', 'details', 'createdAt'])
+        && data.reporterUid is string && data.reporterUid.size() <= 128
+        && data.targetType in ['user', 'room', 'message']
+        && data.targetId is string && data.targetId.size() <= 128
+        && data.reason is string && data.reason.size() <= 120
+        && (!('details' in data) || (data.details is string && data.details.size() <= 500))
+        && data.createdAt is timestamp;
+    }
+
+    // --- COLLECTIONS ---
+
+    match /test/connection {
+      allow get: if isSignedIn();
+    }
+
+    match /users_public/{userId} {
+      allow get: if isSignedIn() && isValidId(userId);
+      allow list: if isSignedIn() && resource.data.points >= 0 && request.query.limit <= 100;
+      allow create: if isOwner(userId) && isValidId(userId)
+        && isValidUserPublic(incoming())
+        && incoming().uid == request.auth.uid
+        && incoming().points == 0
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isSignedIn() && isValidId(userId) && isValidUserPublic(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly([
+            'username', 'displayName', 'avatarUrl', 'bio', 'country',
+            'favoriteGenres', 'themeColor', 'isOnline', 'currentRoomId',
+            'currentRoomName', 'currentTrackTitle', 'points', 'weeklyPoints',
+            'monthlyPoints', 'tracksSharedCount', 'listeningMinutes', 'badges', 'updatedAt'
+          ])) ||
+          (incoming().diff(existing()).affectedKeys().hasOnly(['followersCount', 'followingCount', 'updatedAt']))
+        );
+    }
+
+    match /users_private/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false;
+      allow create: if isOwner(userId) && isValidId(userId)
+        && isValidUserPrivate(incoming())
+        && incoming().uid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isOwner(userId) && isValidId(userId)
+        && isValidUserPrivate(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+    }
+
+    match /room_invites/{inviteCode} {
+      allow get: if isSignedIn() && isValidId(inviteCode);
+      allow list: if false;
+      allow create: if isSignedIn() && isValidId(inviteCode)
+        && isValidRoomInvite(incoming())
+        && incoming().creatorId == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow delete: if isSignedIn() && isValidId(inviteCode)
+        && existing().creatorId == request.auth.uid;
+    }
+
+    match /rooms/{roomId} {
+      allow get: if isSignedIn() && isValidId(roomId)
+        && (
+          existing().visibility in ['public', 'exclusive'] ||
+          existing().creatorId == request.auth.uid ||
+          isMember(roomId)
+        );
+      allow list: if isSignedIn()
+        && (
+          resource.data.visibility in ['public', 'exclusive'] ||
+          resource.data.creatorId == request.auth.uid
+        );
+      allow create: if isSignedIn() && isValidId(roomId)
+        && isValidRoom(incoming())
+        && incoming().id == roomId
+        && incoming().creatorId == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isSignedIn() && isValidId(roomId)
+        && isValidRoom(incoming())
+        && incoming().id == existing().id
+        && incoming().creatorId == existing().creatorId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (
+            (existing().creatorId == request.auth.uid || isRoomAdmin(roomId)) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'name', 'description', 'coverUrl', 'category', 'visibility',
+              'hasPassword', 'passwordHash', 'maxParticipants', 'partyMode',
+              'participantCount', 'currentTrackTitle', 'currentTrackArtist',
+              'isPlaying', 'isClosed', 'updatedAt'
+            ])
+          ) ||
+          (
+            isRoomStaff(roomId) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'partyMode', 'currentTrackTitle', 'currentTrackArtist', 'isPlaying', 'updatedAt'
+            ])
+          ) ||
+          (
+            isMember(roomId) &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['participantCount', 'updatedAt'])
+          )
+        );
+      allow delete: if isSignedIn() && isValidId(roomId)
+        && (existing().creatorId == request.auth.uid || isRoomAdmin(roomId));
+
+      match /members/{memberId} {
+        allow get: if isSignedIn() && isValidId(roomId) && isValidId(memberId) && canReadRoom(roomId);
+        allow list: if isSignedIn() && isValidId(roomId) && canReadRoom(roomId);
+        allow create: if isSignedIn() && isValidId(roomId) && isValidId(memberId)
+          && memberId == request.auth.uid
+          && isValidRoomMember(incoming())
+          && incoming().uid == request.auth.uid
+          && incoming().isMuted == false
+          && incoming().joinedAt == request.time
+          && roomExists(roomId)
+          && (
+            (getRoom(roomId).creatorId == request.auth.uid && incoming().role == 'admin') ||
+            (
+              incoming().role == 'listener' && (
+                getRoom(roomId).visibility in ['public', 'exclusive'] ||
+                incoming().inviteCode == getRoom(roomId).inviteCode
+              )
+            )
+          );
+        allow update: if isSignedIn() && isValidId(roomId) && isValidId(memberId)
+          && isValidRoomMember(incoming())
+          && incoming().uid == existing().uid
+          && incoming().joinedAt == existing().joinedAt
+          && (
+            (
+              isRoomAdmin(roomId) &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['role', 'isMuted'])
+            ) ||
+            (
+              memberId == request.auth.uid &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'avatarUrl', 'username'])
+            )
+          );
+        allow delete: if isSignedIn() && isValidId(roomId) && isValidId(memberId)
+          && (memberId == request.auth.uid || isRoomAdmin(roomId) || getRoom(roomId).creatorId == request.auth.uid);
+      }
+
+      match /tracks/{trackId} {
+        allow get: if isSignedIn() && isValidId(roomId) && isValidId(trackId) && canReadRoom(roomId);
+        allow list: if isSignedIn() && isValidId(roomId) && canReadRoom(roomId);
+        allow create: if isSignedIn() && isValidId(roomId) && isValidId(trackId)
+          && isValidRoomTrack(incoming())
+          && incoming().id == trackId
+          && incoming().addedByUid == request.auth.uid
+          && incoming().createdAt == request.time
+          && isRoomStaff(roomId);
+        allow update: if isSignedIn() && isValidId(roomId) && isValidId(trackId)
+          && isValidRoomTrack(incoming())
+          && incoming().id == existing().id
+          && incoming().addedByUid == existing().addedByUid
+          && incoming().createdAt == existing().createdAt
+          && (
+            (
+              isRoomStaff(roomId) &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['status', 'orderIndex', 'votesCount', 'voterUids'])
+            ) ||
+            (
+              isMember(roomId) &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['votesCount', 'voterUids'])
+            )
+          );
+        allow delete: if isSignedIn() && isValidId(roomId) && isValidId(trackId)
+          && (isRoomStaff(roomId) || existing().addedByUid == request.auth.uid);
+      }
+
+      match /requests/{requestId} {
+        allow get: if isSignedIn() && isValidId(roomId) && isValidId(requestId) && canReadRoom(roomId);
+        allow list: if isSignedIn() && isValidId(roomId) && canReadRoom(roomId);
+        allow create: if isSignedIn() && isValidId(roomId) && isValidId(requestId)
+          && isValidTrackRequest(incoming())
+          && incoming().id == requestId
+          && incoming().requestedByUid == request.auth.uid
+          && incoming().status == 'pending'
+          && incoming().createdAt == request.time
+          && isMember(roomId);
+        allow update: if isSignedIn() && isValidId(roomId) && isValidId(requestId)
+          && isValidTrackRequest(incoming())
+          && existing().status == 'pending'
+          && incoming().id == existing().id
+          && incoming().requestedByUid == existing().requestedByUid
+          && incoming().createdAt == existing().createdAt
+          && isRoomStaff(roomId)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['status']);
+        allow delete: if isSignedIn() && isValidId(roomId) && isValidId(requestId)
+          && (isRoomStaff(roomId) || existing().requestedByUid == request.auth.uid);
+      }
+
+      match /messages/{messageId} {
+        allow get: if isSignedIn() && isValidId(roomId) && isValidId(messageId) && canReadRoom(roomId);
+        allow list: if isSignedIn() && isValidId(roomId) && canReadRoom(roomId);
+        allow create: if isSignedIn() && isValidId(roomId) && isValidId(messageId)
+          && isValidRoomMessage(incoming())
+          && incoming().id == messageId
+          && incoming().senderUid == request.auth.uid
+          && incoming().isPinned == false
+          && incoming().createdAt == request.time
+          && isMember(roomId)
+          && !isMemberMuted(roomId);
+        allow update: if isSignedIn() && isValidId(roomId) && isValidId(messageId)
+          && isValidRoomMessage(incoming())
+          && incoming().id == existing().id
+          && incoming().senderUid == existing().senderUid
+          && incoming().createdAt == existing().createdAt
+          && (
+            (isMember(roomId) && incoming().diff(existing()).affectedKeys().hasOnly(['reactions'])) ||
+            (isRoomStaff(roomId) && incoming().diff(existing()).affectedKeys().hasOnly(['isPinned']))
+          );
+        allow delete: if isSignedIn() && isValidId(roomId) && isValidId(messageId)
+          && (existing().senderUid == request.auth.uid || isRoomStaff(roomId));
+      }
+
+      match /history/{historyId} {
+        allow get: if isSignedIn() && isValidId(roomId) && isValidId(historyId) && canReadRoom(roomId);
+        allow list: if isSignedIn() && isValidId(roomId) && canReadRoom(roomId);
+        allow create: if isSignedIn() && isValidId(roomId) && isValidId(historyId)
+          && isValidRoomHistory(incoming())
+          && incoming().id == historyId
+          && incoming().playedByUid == request.auth.uid
+          && incoming().playedAt == request.time
+          && isRoomStaff(roomId);
+      }
+
+      match /battles/{battleId} {
+        allow get: if isSignedIn() && isValidId(roomId) && isValidId(battleId) && canReadRoom(roomId);
+        allow list: if isSignedIn() && isValidId(roomId) && canReadRoom(roomId);
+        allow create: if isSignedIn() && isValidId(roomId) && isValidId(battleId)
+          && isValidMusicBattle(incoming())
+          && incoming().id == battleId
+          && incoming().creatorUid == request.auth.uid
+          && incoming().status == 'active'
+          && incoming().createdAt == request.time
+          && isRoomStaff(roomId);
+        allow update: if isSignedIn() && isValidId(roomId) && isValidId(battleId)
+          && isValidMusicBattle(incoming())
+          && existing().status == 'active'
+          && incoming().id == existing().id
+          && incoming().creatorUid == existing().creatorUid
+          && incoming().createdAt == existing().createdAt
+          && (
+            (isMember(roomId) && incoming().diff(existing()).affectedKeys().hasOnly(['votesA', 'votesB'])) ||
+            (isRoomStaff(roomId) && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'winner']))
+          );
+      }
+    }
+
+    match /friendships/{friendshipId} {
+      allow get: if isSignedIn() && isValidId(friendshipId) && (request.auth.uid in existing().participants);
+      allow list: if isSignedIn() && (request.auth.uid in resource.data.participants);
+      allow create: if isSignedIn() && isValidId(friendshipId)
+        && isValidFriendship(incoming())
+        && incoming().id == friendshipId
+        && incoming().requesterUid == request.auth.uid
+        && (request.auth.uid in incoming().participants)
+        && incoming().status == 'pending'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isSignedIn() && isValidId(friendshipId)
+        && isValidFriendship(incoming())
+        && (request.auth.uid in existing().participants)
+        && incoming().id == existing().id
+        && incoming().participants == existing().participants
+        && incoming().requesterUid == existing().requesterUid
+        && incoming().recipientUid == existing().recipientUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
+      allow delete: if isSignedIn() && isValidId(friendshipId)
+        && (request.auth.uid in existing().participants);
+    }
+
+    match /follows/{followId} {
+      allow get: if isSignedIn() && isValidId(followId);
+      allow list: if isSignedIn() && resource.data.followerUid == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(followId)
+        && isValidFollow(incoming())
+        && incoming().followerUid == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow delete: if isSignedIn() && isValidId(followId)
+        && existing().followerUid == request.auth.uid;
+    }
+
+    match /dm_threads/{threadId} {
+      allow get: if isSignedIn() && isValidId(threadId) && (request.auth.uid in existing().participants);
+      allow list: if isSignedIn() && (request.auth.uid in resource.data.participants);
+      allow create: if isSignedIn() && isValidId(threadId)
+        && isValidDmThread(incoming())
+        && incoming().id == threadId
+        && incoming().creatorUid == request.auth.uid
+        && (request.auth.uid in incoming().participants)
+        && incoming().createdAt == request.time;
+      allow update: if isSignedIn() && isValidId(threadId)
+        && isValidDmThread(incoming())
+        && (request.auth.uid in existing().participants)
+        && incoming().id == existing().id
+        && incoming().creatorUid == existing().creatorUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['lastMessage', 'lastMessageAt', 'name', 'participants']);
+
+      match /messages/{messageId} {
+        allow get: if isSignedIn() && isValidId(threadId) && isValidId(messageId)
+          && (request.auth.uid in get(/databases/$(database)/documents/dm_threads/$(threadId)).data.participants);
+        allow list: if isSignedIn() && isValidId(threadId)
+          && (request.auth.uid in get(/databases/$(database)/documents/dm_threads/$(threadId)).data.participants);
+        allow create: if isSignedIn() && isValidId(threadId) && isValidId(messageId)
+          && isValidDmMessage(incoming())
+          && incoming().id == messageId
+          && incoming().senderUid == request.auth.uid
+          && incoming().createdAt == request.time
+          && (request.auth.uid in get(/databases/$(database)/documents/dm_threads/$(threadId)).data.participants);
+      }
+    }
+
+    match /notifications/{notificationId} {
+      allow get: if isSignedIn() && isValidId(notificationId) && existing().recipientUid == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.recipientUid == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(notificationId)
+        && isValidNotification(incoming())
+        && incoming().id == notificationId
+        && incoming().senderUid == request.auth.uid
+        && incoming().read == false
+        && incoming().createdAt == request.time;
+      allow update: if isSignedIn() && isValidId(notificationId)
+        && isValidNotification(incoming())
+        && existing().recipientUid == request.auth.uid
+        && incoming().id == existing().id
+        && incoming().recipientUid == existing().recipientUid
+        && incoming().senderUid == existing().senderUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+      allow delete: if isSignedIn() && isValidId(notificationId) && existing().recipientUid == request.auth.uid;
+    }
+
+    match /events/{eventId} {
+      allow get: if isSignedIn() && isValidId(eventId);
+      allow list: if isSignedIn() && resource.data.maxCapacity >= 2 && request.query.limit <= 60;
+      allow create: if isSignedIn() && isValidId(eventId)
+        && isValidEvent(incoming())
+        && incoming().id == eventId
+        && incoming().creatorUid == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update: if isSignedIn() && isValidId(eventId)
+        && isValidEvent(incoming())
+        && incoming().id == existing().id
+        && incoming().creatorUid == existing().creatorUid
+        && incoming().createdAt == existing().createdAt
+        && (
+          existing().creatorUid == request.auth.uid ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['attendeeCount'])
+        );
+      allow delete: if isSignedIn() && isValidId(eventId) && existing().creatorUid == request.auth.uid;
+
+      match /registrations/{uid} {
+        allow get: if isSignedIn() && isValidId(eventId) && isValidId(uid);
+        allow list: if isSignedIn() && isValidId(eventId)
+          && exists(/databases/$(database)/documents/events/$(eventId));
+        allow create: if isOwner(uid) && isValidId(eventId) && isValidId(uid)
+          && isValidEventRegistration(incoming())
+          && incoming().uid == request.auth.uid
+          && incoming().registeredAt == request.time;
+        allow delete: if isOwner(uid) && isValidId(eventId) && isValidId(uid);
+      }
+    }
+
+    match /reports/{reportId} {
+      allow read: if false;
+      allow create: if isSignedIn() && isValidId(reportId)
+        && isValidReport(incoming())
+        && incoming().reporterUid == request.auth.uid
+        && incoming().createdAt == request.time;
+    }
+  }
+}
